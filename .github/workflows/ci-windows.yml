@@ -1,0 +1,136 @@
+name: CI-Windows
+permissions: {}
+
+on:
+  push:
+    branches: ['**']
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Windows-AMD64
+    runs-on: windows-2022
+    permissions:
+      contents: read
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Setup MSYS2
+        uses: msys2/setup-msys2@ec48f7c5447b3140e2b088413ae3a55687bccb6e  # v2.33.0
+        with:
+          msystem: ucrt64
+          update: true
+          cache: true
+          install: >-
+            git
+            mingw-w64-ucrt-x86_64-boost
+            mingw-w64-ucrt-x86_64-cmake
+            mingw-w64-ucrt-x86_64-cppwinrt
+            mingw-w64-ucrt-x86_64-curl-winssl
+            mingw-w64-ucrt-x86_64-MinHook
+            mingw-w64-ucrt-x86_64-miniupnpc
+            mingw-w64-ucrt-x86_64-nlohmann-json
+            mingw-w64-ucrt-x86_64-nsis
+            mingw-w64-ucrt-x86_64-onevpl
+            mingw-w64-ucrt-x86_64-openssl
+            mingw-w64-ucrt-x86_64-opus
+            mingw-w64-ucrt-x86_64-toolchain
+
+      # MSYS2's nodejs crashes on start (see docs/building.md), so use the official build.
+      - name: Setup Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v7.1.0
+        with:
+          node-version: 'lts/*'
+
+      - name: Locate Node.js
+        shell: pwsh
+        run: echo "NODEJS_PATH=$(Split-Path -Parent (Get-Command node).Source)" >> $env:GITHUB_ENV
+
+      - name: Set version
+        run: |
+          # Release builds take their version from the tag; other builds use the
+          # git-derived version from cmake/prep/build_version.cmake.
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            echo "BUILD_VERSION=${GITHUB_REF_NAME#v}" >> "${GITHUB_ENV}"
+            echo "BRANCH=master" >> "${GITHUB_ENV}"
+          fi
+
+      - name: Build
+        run: |
+          export PATH="${PATH}:$(cygpath "${NODEJS_PATH}")"
+          cmake \
+            -B build \
+            -G Ninja \
+            -S . \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DSUNSHINE_ASSETS_DIR=assets \
+            -DSUNSHINE_PUBLISHER_NAME="KAERU" \
+            -DSUNSHINE_PUBLISHER_WEBSITE="https://github.com/KAERU-dev/hyla-host" \
+            -DSUNSHINE_PUBLISHER_ISSUE_URL="https://github.com/KAERU-dev/hyla-host/issues"
+          echo "::add-matcher::.github/matchers/gcc.json"
+          ninja -C build
+          echo "::remove-matcher owner=gcc::"
+
+      - name: Package
+        working-directory: build
+        run: |
+          cpack -G NSIS --config ./CPackConfig.cmake
+          mkdir -p ../artifacts
+          version="$(grep -oP 'CPACK_PACKAGE_VERSION "\K[^"]+' CPackConfig.cmake)"
+          mv cpack_artifacts/Apollo.exe "../artifacts/hyla-host-${version}-windows-x64-installer.exe"
+          (cd ../artifacts && sha256sum ./*.exe > SHA256SUMS)
+
+      - name: Upload installer
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        with:
+          name: hyla-host-windows-x64
+          path: artifacts/
+          if-no-files-found: error
+
+  release:
+    name: Draft release
+    if: github.ref_type == 'tag'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Download installer
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
+        with:
+          name: hyla-host-windows-x64
+          path: artifacts
+
+      # The notes record the Apollo commit the release is based on; the
+      # maintainer adds the backported Sunshine advisories before publishing.
+      - name: Create draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git fetch --quiet https://github.com/ClassicOldSong/Apollo.git master
+          base="$(git merge-base HEAD FETCH_HEAD)"
+          {
+            echo "Based on Apollo [\`${base:0:9}\`](https://github.com/ClassicOldSong/Apollo/commit/${base})."
+            echo
+            echo "Sunshine advisories included: _list before publishing_."
+          } > notes.md
+          gh release create "${GITHUB_REF_NAME}" artifacts/* \
+            --draft --verify-tag --title "Hyla Host ${GITHUB_REF_NAME}" --notes-file notes.md

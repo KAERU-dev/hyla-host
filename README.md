@@ -1,3 +1,64 @@
+# Hyla Host
+
+Hyla Host is the KAERU fork of [Apollo](https://github.com/ClassicOldSong/Apollo)
+that [Hyla Launcher](https://github.com/KAERU-dev/hyla-launcher) ships as its
+Windows remote play host. "Hyla Host" is a working name; the product name is
+settled before the first distributed build. Hyla installs a pinned release of
+this fork and never downloads it at runtime.
+
+Apollo is a fork of [Sunshine](https://github.com/LizardByte/Sunshine) by
+LizardByte. Hyla Host keeps their GPL-3.0 license and copyright notices. Apollo's
+own README follows below.
+
+## Changes from Apollo
+
+- **CI build.** `.github/workflows/ci-windows.yml` builds the NSIS installer with
+  MSYS2 UCRT64 on every push and pull request. A `v*` tag drafts a GitHub
+  release with the installer, its `SHA256SUMS`, and the Apollo commit it is
+  based on.
+- **Silent install reports failures.** Each installer step script exits
+  non-zero when it fails, and the installer sets one bit per failed step in its
+  exit code (see below). A silent install runs the virtual gamepad installer
+  with `/quiet /norestart` and waits for it.
+- **Fixed:** a silent install no longer skips the install directory permission
+  reset (`icacls /reset`).
+- **Fixed:** Apollo `c71ea0a8` added an AMD H.264 `profile` option that reads a
+  field `video::config_t` does not have, so Apollo's `master` does not compile.
+  The fork drops that option.
+
+Everything else is unchanged from Apollo so upstream changes merge cleanly.
+
+## How Hyla uses the installer
+
+Hyla runs the installer once, behind a single administrator prompt, when the
+user turns on hosting:
+
+```
+hyla-host-<version>-windows-x64-installer.exe /S
+```
+
+`/S` installs without UI and opens no browser or web UI. The exit code is `0`
+on success. Otherwise it is the sum of the failed steps:
+
+| Bit | Step                                               |
+| --- | -------------------------------------------------- |
+| 4   | Virtual display driver (SudoVDA)                   |
+| 8   | Firewall rule                                      |
+| 16  | Virtual gamepad driver (ViGEmBus)                  |
+| 32  | Service install, start, or automatic start         |
+
+`1` and `2` keep their NSIS meanings (cancelled, aborted). For example, `40`
+means the firewall rule and the service failed. A virtual gamepad install that
+needs a restart counts as success.
+
+## Versioning and releases
+
+Hyla Host has its own semantic version, independent of Apollo's. Tag a commit
+on `master` with `vX.Y.Z` to draft a release, then list the Sunshine security
+advisories the release includes in its notes before publishing it.
+
+---
+
 # Apollo
 
 Apollo is a self-hosted desktop stream host for [Artemis(Moonlight Noir)](https://github.com/ClassicOldSong/moonlight-android). Offering low latency, native client resolution, cloud gaming server capabilities with support for AMD, Intel, and Nvidia GPUs for hardware encoding. Software encoding is also available. A web UI is provided to allow configuration and client pairing from your favorite web browser. Pair from the local server or any mobile device.

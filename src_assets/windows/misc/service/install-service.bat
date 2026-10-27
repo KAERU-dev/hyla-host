@@ -11,6 +11,7 @@ set "SERVICE_CONFIG_FILE=%SERVICE_CONFIG_DIR%\service_start_type.txt"
 
 rem Set service to demand start. It will be changed to auto later if the user selected that option.
 set SERVICE_START_TYPE=demand
+set "FAILED=0"
 
 rem Remove the legacy SunshineSvc service
 net stop sunshinesvc
@@ -58,10 +59,14 @@ if exist "%SERVICE_CONFIG_FILE%" (
 echo Setting service start type set to: [!SERVICE_START_TYPE!]
 
 rem Run the sc command to create/reconfigure the service
-sc %SC_CMD% %SERVICE_NAME% binPath= "\"%SERVICE_BIN%\"" start= %SERVICE_START_TYPE% DisplayName= "Apollo Service"
+sc %SC_CMD% %SERVICE_NAME% binPath= "\"%SERVICE_BIN%\"" start= %SERVICE_START_TYPE% DisplayName= "Apollo Service" || set "FAILED=1"
 
 rem Set the description of the service
 sc description %SERVICE_NAME% "Apollo is a self-hosted game stream host for Moonlight."
 
-rem Start the new service
-net start %SERVICE_NAME%
+rem Start the new service, unless the user disabled it in a previous installation
+if not "!SERVICE_START_TYPE!"=="disabled" (
+    net start %SERVICE_NAME% || set "FAILED=1"
+)
+
+exit /b !FAILED!
