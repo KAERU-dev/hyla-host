@@ -6,21 +6,45 @@ set(CPACK_NSIS_INSTALLED_ICON_NAME "${PROJECT__DIR}\\\\${PROJECT_EXE}")
 # Extra install commands
 # Restores permissions on the install directory
 # Migrates config files from the root into the new config folder
-# Install service
+# Installs the virtual display driver, firewall rule, virtual gamepad and service
 SET(CPACK_NSIS_EXTRA_INSTALL_COMMANDS
         "${CPACK_NSIS_EXTRA_INSTALL_COMMANDS}
-        IfSilent +2 0
-        # ExecShell 'open' 'https://docs.lizardbyte.dev/projects/sunshine'
+        # A failed step sets a bit in the installer's exit code (driver 4, firewall 8,
+        # gamepad 16, service 32) so a silent install can tell which step failed.
+        # 1 and 2 are left to NSIS for a cancelled or aborted install.
+        Var /GLOBAL InstallFailures
+        StrCpy $InstallFailures 0
         nsExec::ExecToLog 'icacls \\\"$INSTDIR\\\" /reset'
+        Pop $0
         nsExec::ExecToLog '\\\"$INSTDIR\\\\scripts\\\\update-path.bat\\\" add'
+        Pop $0
         nsExec::ExecToLog '\\\"$INSTDIR\\\\drivers\\\\sudovda\\\\install.bat\\\"'
+        Pop $0
+        StrCmp $0 0 +2
+        IntOp $InstallFailures $InstallFailures | 4
         nsExec::ExecToLog '\\\"$INSTDIR\\\\scripts\\\\migrate-config.bat\\\"'
+        Pop $0
         nsExec::ExecToLog '\\\"$INSTDIR\\\\scripts\\\\add-firewall-rule.bat\\\"'
+        Pop $0
+        StrCmp $0 0 +2
+        IntOp $InstallFailures $InstallFailures | 8
+        StrCpy $1 ''
+        IfSilent 0 +2
+        StrCpy $1 ' -Quiet'
         nsExec::ExecToLog \
-          'powershell.exe -NoProfile -ExecutionPolicy Bypass -File \\\"$INSTDIR\\\\scripts\\\\install-gamepad.ps1\\\"'
+          'powershell.exe -NoProfile -ExecutionPolicy Bypass -File \\\"$INSTDIR\\\\scripts\\\\install-gamepad.ps1\\\"$1'
+        Pop $0
+        StrCmp $0 0 +2
+        IntOp $InstallFailures $InstallFailures | 16
         nsExec::ExecToLog '\\\"$INSTDIR\\\\scripts\\\\install-service.bat\\\"'
+        Pop $0
+        StrCmp $0 0 +2
+        IntOp $InstallFailures $InstallFailures | 32
         nsExec::ExecToLog '\\\"$INSTDIR\\\\scripts\\\\autostart-service.bat\\\"'
-        NoController:
+        Pop $0
+        StrCmp $0 0 +2
+        IntOp $InstallFailures $InstallFailures | 32
+        SetErrorLevel $InstallFailures
         ")
 
 # Extra uninstall commands
