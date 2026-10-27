@@ -22,6 +22,9 @@ own README follows below.
   with `/quiet /norestart` and waits for it.
 - **Fixed:** a silent install no longer skips the install directory permission
   reset (`icacls /reset`).
+- **Fixed:** Apollo `c71ea0a8` added an AMD H.264 `profile` option that reads a
+  field `video::config_t` does not have, so Apollo's `master` does not compile.
+  The fork drops that option.
 
 Everything else is unchanged from Apollo so upstream changes merge cleanly.
 
