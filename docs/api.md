@@ -48,8 +48,14 @@ basic authentication with the admin username and password.
 ## POST /api/password
 @copydoc confighttp::savePassword()
 
+## GET /api/pin
+@copydoc confighttp::getPendingPairings()
+
 ## POST /api/pin
 @copydoc confighttp::savePin()
+
+## DELETE /api/pin
+@copydoc confighttp::cancelPairing()
 
 ## POST /api/reset-display-device-persistence
 @copydoc confighttp::resetDisplayDevicePersistence()

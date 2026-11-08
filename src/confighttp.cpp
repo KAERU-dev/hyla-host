@@ -1262,19 +1262,86 @@ namespace confighttp {
   }
 
   /**
-   * @brief Send a PIN code to the host.
+   * @brief List client pairing requests that are waiting for PIN approval.
+   * @param response The HTTP response object.
+   * @param request The HTTP request object.
+   *
+   * @api_examples{/api/pin| GET| null}
+   */
+  void getPendingPairings(resp_https_t response, req_https_t request) {
+    if (!authenticate(response, request)) {
+      return;
+    }
+
+    print_req(request);
+
+    nlohmann::json output_tree;
+    output_tree["pairings"] = nlohmann::json::array();
+    for (const auto &pairing : nvhttp::get_pending_pairings()) {
+      output_tree["pairings"].push_back({
+        {"id", pairing.id},
+        {"name", pairing.name},
+        {"address", pairing.address},
+      });
+    }
+    send_response(response, output_tree);
+  }
+
+  /**
+   * @brief Cancel a client pairing request that is waiting for PIN approval.
+   * @param response The HTTP response object.
+   * @param request The HTTP request object.
+   *
+   * The body for the DELETE request should be JSON serialized in the following format:
+   * @code{.json}
+   * {
+   *   "pairing_id": "<pairing_id>"
+   * }
+   * @endcode
+   *
+   * @api_examples{/api/pin| DELETE| {"pairing_id":"0123456789abcdef0123456789abcdef"}}
+   */
+  void cancelPairing(resp_https_t response, req_https_t request) {
+    if (!validateContentType(response, request, "application/json") || !authenticate(response, request)) {
+      return;
+    }
+
+    print_req(request);
+
+    try {
+      std::stringstream ss;
+      ss << request->content.rdbuf();
+      const nlohmann::json input_tree = nlohmann::json::parse(ss.str());
+      const std::string pairing_id = input_tree.value("pairing_id", "");
+      if (!nvhttp::is_valid_pairing_id(pairing_id)) {
+        bad_request(response, request, "pairing_id must contain exactly 32 hexadecimal characters");
+        return;
+      }
+
+      nlohmann::json output_tree;
+      output_tree["status"] = nvhttp::cancel_pairing(pairing_id);
+      send_response(response, output_tree);
+    } catch (std::exception &e) {
+      BOOST_LOG(warning) << "CancelPairing: "sv << e.what();
+      bad_request(response, request, e.what());
+    }
+  }
+
+  /**
+   * @brief Send a PIN code to the explicitly selected pairing request.
    * @param response The HTTP response object.
    * @param request The HTTP request object.
    *
    * The body for the POST request should be JSON serialized in the following format:
    * @code{.json}
    * {
+   *   "pairing_id": "<pairing_id>",
    *   "pin": "<pin>",
    *   "name": "Friendly Client Name"
    * }
    * @endcode
    *
-   * @api_examples{/api/pin| POST| {"pin":"1234","name":"My PC"}}
+   * @api_examples{/api/pin| POST| {"pairing_id":"0123456789abcdef0123456789abcdef","pin":"1234","name":"My PC"}}
    */
   void savePin(resp_https_t response, req_https_t request) {
     if (!validateContentType(response, request, "application/json") || !authenticate(response, request)) {
@@ -1288,9 +1355,23 @@ namespace confighttp {
       ss << request->content.rdbuf();
       nlohmann::json input_tree = nlohmann::json::parse(ss.str());
       nlohmann::json output_tree;
+      const std::string pairing_id = input_tree.value("pairing_id", "");
       std::string pin = input_tree.value("pin", "");
       std::string name = input_tree.value("name", "");
-      output_tree["status"] = nvhttp::pin(pin, name);
+      if (!nvhttp::is_valid_pairing_id(pairing_id)) {
+        bad_request(response, request, "pairing_id must contain exactly 32 hexadecimal characters");
+        return;
+      }
+      if (!nvhttp::is_valid_pairing_pin(pin)) {
+        bad_request(response, request, "PIN must contain exactly 4 numeric digits");
+        return;
+      }
+      if (!nvhttp::is_valid_pairing_name(name)) {
+        bad_request(response, request, "Client name must not exceed 128 bytes");
+        return;
+      }
+
+      output_tree["status"] = nvhttp::pin(pairing_id, pin, name);
       send_response(response, output_tree);
     } catch (std::exception &e) {
       BOOST_LOG(warning) << "SavePin: "sv << e.what();
@@ -1531,6 +1612,8 @@ namespace confighttp {
     server.resource["^/login/?$"]["GET"] = getLoginPage;
     server.resource["^/troubleshooting/?$"]["GET"] = getTroubleshootingPage;
     server.resource["^/api/login"]["POST"] = login;
+    server.resource["^/api/pin$"]["DELETE"] = cancelPairing;
+    server.resource["^/api/pin$"]["GET"] = getPendingPairings;
     server.resource["^/api/pin$"]["POST"] = savePin;
     server.resource["^/api/otp$"]["POST"] = getOTP;
     server.resource["^/api/apps$"]["GET"] = getApps;
