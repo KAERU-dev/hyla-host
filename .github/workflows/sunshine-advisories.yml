@@ -1,0 +1,75 @@
+name: Sunshine advisories
+permissions: {}
+
+# Fails when LizardByte/Sunshine has published a security advisory that is not
+# in the backport log in SECURITY.md. See SECURITY.md for how to handle one.
+on:
+  schedule:
+    - cron: '23 6 * * *'
+  push:
+    branches: [master]
+    paths:
+      - SECURITY.md
+      - .github/workflows/sunshine-advisories.yml
+  pull_request:
+    paths:
+      - SECURITY.md
+      - .github/workflows/sunshine-advisories.yml
+  workflow_dispatch:
+
+jobs:
+  check:
+    name: Backport log is complete
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          sparse-checkout: SECURITY.md
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+
+      - name: Compare advisories with the backport log
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          published="$(gh api --paginate \
+            'repos/LizardByte/Sunshine/security-advisories?state=published&per_page=100' \
+            --jq '.[].ghsa_id' | sort -u)"
+          if [[ -z "${published}" ]]; then
+            echo "::error::The GitHub API returned no Sunshine advisories."
+            exit 1
+          fi
+
+          # Advisory IDs in the first column of the table under "## Backport log".
+          logged="$(awk -F'|' '/^## /{in_log = ($0 == "## Backport log")} in_log && /^\|/{print $2}' SECURITY.md \
+            | grep -oE 'GHSA(-[0-9a-z]{4}){3}' | sort -u || true)"
+
+          missing="$(comm -23 <(echo "${published}") <(echo "${logged}"))"
+
+          {
+            echo "## Sunshine advisories"
+            echo
+            echo "Published: $(echo "${published}" | wc -l). In the backport log: $(echo "${logged}" | grep -c . || true)."
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+          if [[ -n "${missing}" ]]; then
+            {
+              echo
+              echo "Missing from SECURITY.md:"
+              echo
+              while read -r id; do
+                echo "- [${id}](https://github.com/LizardByte/Sunshine/security/advisories/${id})"
+              done <<< "${missing}"
+            } >> "${GITHUB_STEP_SUMMARY}"
+            while read -r id; do
+              echo "::error file=SECURITY.md::Sunshine advisory ${id} is not in the backport log: https://github.com/LizardByte/Sunshine/security/advisories/${id}"
+            done <<< "${missing}"
+            exit 1
+          fi
+
+          echo "Every published Sunshine advisory is in the backport log."

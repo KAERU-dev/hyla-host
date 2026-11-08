@@ -25,6 +25,11 @@ own README follows below.
 - **Fixed:** Apollo `c71ea0a8` added an AMD H.264 `profile` option that reads a
   field `video::config_t` does not have, so Apollo's `master` does not compile.
   The fork drops that option.
+- **Sunshine security fixes.** Sunshine advisories published after Apollo's
+  last commit are backported, and a daily workflow checks that every published
+  Sunshine advisory is handled. [SECURITY.md](SECURITY.md) has the routine and
+  the backport log. One of these fixes changes the Web UI: PIN pairing now asks
+  which pending device to approve, and pending requests can be cancelled.
 
 Everything else is unchanged from Apollo so upstream changes merge cleanly.
 
@@ -55,7 +60,9 @@ needs a restart counts as success.
 
 Hyla Host has its own semantic version, independent of Apollo's. Tag a commit
 on `master` with `vX.Y.Z` to draft a release, then list the Sunshine security
-advisories the release includes in its notes before publishing it.
+advisories the release includes in its notes before publishing it. A Sunshine
+advisory missing from the backport log in [SECURITY.md](SECURITY.md) blocks
+the release.
 
 ---
 
